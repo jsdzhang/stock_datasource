@@ -12,7 +12,7 @@ function isPublicPath(path: string): boolean {
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/market'
+    redirect: '/chat'
   },
   {
     path: '/login',
@@ -60,7 +60,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '资讯中心', icon: 'notification', requiresAuth: true }
   },
   {
-    path: '/chat',
+    path: '/chat/:sessionId?',
     name: 'Chat',
     component: () => import('@/views/chat/ChatView.vue'),
     meta: { title: '智能对话', icon: 'chat', requiresAuth: true }
@@ -103,7 +103,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/memory',
-    redirect: '/portfolio'
+    name: 'Memory',
+    component: () => import('@/views/memory/MemoryView.vue'),
+    meta: { title: '用户记忆', icon: 'brain', requiresAuth: true }
   },
   {
     path: '/datamanage',
@@ -149,39 +151,62 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/workflow',
-    name: 'Workflow',
-    component: () => import('@/views/workflow/WorkflowList.vue'),
-    meta: { title: 'AI工作流', icon: 'cpu', requiresAuth: true, requiresTier: 'pro' }
+    redirect: '/orchestration'
   },
   {
-    path: '/workflow/create',
-    name: 'WorkflowCreate',
-    component: () => import('@/views/workflow/WorkflowEditor.vue'),
-    meta: { title: '创建工作流', requiresAuth: true }
+    path: '/orchestration',
+    name: 'OrchestrationList',
+    component: () => import('@/views/orchestration/OrchestrationList.vue'),
+    meta: { title: '投研团队', icon: 'flow', requiresAuth: true, requiresTier: 'pro' }
   },
   {
-    path: '/workflow/:id/edit',
-    name: 'WorkflowEdit',
-    component: () => import('@/views/workflow/WorkflowEditor.vue'),
-    meta: { title: '编辑工作流', requiresAuth: true }
+    path: '/orchestration/:id',
+    name: 'OrchestrationEditor',
+    component: () => import('@/views/orchestration/OrchestrationEditor.vue'),
+    meta: { title: '投研团队编辑器', requiresAuth: true, requiresTier: 'pro' }
+  },
+  {
+    path: '/agents',
+    name: 'AgentManagement',
+    component: () => import('@/views/agent-management/AgentList.vue'),
+    meta: { title: '投研 Agent', icon: 'user-setting', requiresAuth: true }
+  },
+  {
+    path: '/runtimes',
+    name: 'RuntimeManagement',
+    component: () => import('@/views/agent-management/RuntimeManagement.vue'),
+    meta: { title: '工具运行时', requiresAuth: true }
+  },
+  {
+    path: '/agents/:id/edit',
+    name: 'AgentEditor',
+    component: () => import('@/views/agent-management/AgentEditor.vue'),
+    meta: { title: '编辑投研 Agent', requiresAuth: true }
   },
   {
     path: '/arena',
     name: 'Arena',
     component: () => import('@/views/arena/ArenaManagement.vue'),
-    meta: { title: '多Agent竞技场', icon: 'data-analysis', requiresAuth: true }
+    meta: { title: '策略实验室', icon: 'data-analysis', requiresAuth: true }
   },
 {
     path: '/arena/:id',
     name: 'ArenaDetail',
     component: () => import('@/views/arena/ArenaDetail.vue'),
-    meta: { title: '竞技场详情', requiresAuth: true }
+    meta: { title: '策略实验详情', requiresAuth: true }
   },
   {
     path: '/arena/:arenaId/strategy/:strategyId',
     name: 'ArenaStrategyDetail',
     component: () => import('@/views/arena/ArenaStrategyDetail.vue'),
-    meta: { title: '策略详情', requiresAuth: true }
+    meta: { title: '策略候选详情', requiresAuth: true }
+  },
+  // Decision Dashboard
+  {
+    path: '/decision',
+    name: 'DecisionDashboard',
+    component: () => import('@/views/decision/DecisionDashboard.vue'),
+    meta: { title: '决策看板', icon: 'chart-analytics', requiresAuth: true }
   },
   // Quant model routes
   {
@@ -196,6 +221,13 @@ const routes: RouteRecordRaw[] = [
     name: 'Signal',
     component: () => import('@/views/signal/SignalDashboard.vue'),
     meta: { title: '信号可观测', icon: 'chart-radar', requiresAuth: true, requiresTier: 'pro' }
+  },
+  // Sentinel System (哨兵选股)
+  {
+    path: '/sentinel',
+    name: 'Sentinel',
+    component: () => import('@/views/sentinel/SentinelView.vue'),
+    meta: { title: '哨兵选股', icon: 'alarm-clock', requiresAuth: true }
   },
   {
     path: '/quant/screening',

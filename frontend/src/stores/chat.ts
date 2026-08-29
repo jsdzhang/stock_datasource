@@ -83,8 +83,9 @@ export interface DebugMessage {
   targetAgent?: string
   parentAgent?: string
   laneId?: string
+  arenaId?: string
   // Display role
-  role: 'orchestrator' | 'agent' | 'tool' | 'system' | 'handoff'
+  role: 'orchestrator' | 'agent' | 'tool' | 'system' | 'handoff' | 'discussion'
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -127,6 +128,38 @@ export const useChatStore = defineStore('chat', () => {
   const messageVisualizations = ref<Record<string, VisualizationEvent['visualization'][]>>({})
   // Accumulator for current streaming message's visualizations
   let pendingVisualizations: VisualizationEvent['visualization'][] = []
+
+  // Decision Summary state (from arena discussions)
+  const decisionSummary = ref<{
+    signal: 'BUY' | 'SELL' | 'HOLD' | 'NONE'
+    confidence: number
+    bull_count: number
+    bear_count: number
+    neutral_count: number
+    suggested_action: string
+  } | null>(null)
+  const decisionSidebarOpen = ref(false)
+
+  // Selected Agent team for Chat requests
+  const activeTeamId = ref<string | null>(null)
+  const activeTeamName = ref<string | null>(null)
+
+  // Preview signal state (instant rule-based, before full LLM synthesis)
+  const previewSignal = ref<{
+    signal: 'BUY' | 'SELL' | 'HOLD'
+    confidence: number
+    bull_count: number
+    bear_count: number
+    neutral_count: number
+    stock_code: string
+    is_preview: true
+  } | null>(null)
+
+  // AbortController for cancelling in-flight streams on session switch
+  let streamAbortController: AbortController | null = null
+
+  // Last session reference for returning user "继续上次对话" chip
+  const lastSessionRef = ref<{ session_id: string; title: string } | null>(null)
 
   // ============ LocalStorage Persistence Functions ============
   
@@ -226,9 +259,31 @@ export const useChatStore = defineStore('chat', () => {
   }
   
   // Restore session from localStorage or create new one
+  // For returning users: start fresh with a "继续上次对话" chip
+  // For first-time users (or explicit URL): load that session
   const restoreOrInitSession = async () => {
     const savedSessionId = loadSessionFromStorage()
     await loadSessions()
+
+    // Record the last session for "继续上次对话" chip
+    if (sessions.value.length > 0) {
+      const latest = sessions.value[0]
+      if (latest.message_count > 0) {
+        lastSessionRef.value = {
+          session_id: latest.session_id,
+          title: latest.title || `会话 ${latest.session_id.slice(-6)}`,
+        }
+      }
+    }
+
+    // If user has sessions with messages, start fresh (new empty session)
+    // so they see the welcome screen + "继续上次对话"
+    const hasExistingSessions = sessions.value.some(s => s.message_count > 0)
+    if (hasExistingSessions && !savedSessionId) {
+      // No explicit saved session — returning user gets fresh start
+      await initSession()
+      return
+    }
 
     if (savedSessionId) {
       const savedSession = sessions.value.find(s => s.session_id === savedSessionId)
@@ -293,14 +348,29 @@ export const useChatStore = defineStore('chat', () => {
   const switchSession = async (newSessionId: string) => {
     if (newSessionId === sessionId.value) return
 
+    // CRITICAL: Abort any in-flight stream BEFORE changing session
+    // This prevents the old stream's callbacks from writing into the new session
+    if (streamAbortController) {
+      streamAbortController.abort()
+      streamAbortController = null
+    }
+
     const previousSessionId = sessionId.value
     const previousMessages = [...messages.value]
     const previousTitle = currentSessionTitle.value
     const session = sessions.value.find(s => s.session_id === newSessionId)
 
+    // Reset all streaming state immediately
+    loading.value = false
+    thinking.value = false
+    streamingContent.value = ''
+    currentAgent.value = ''
+    currentIntent.value = ''
+    currentTool.value = ''
+    currentStatus.value = ''
+
     applyActiveSession(newSessionId, session?.title || '')
     messages.value = []
-    streamingContent.value = ''
 
     const localMessages = loadMessagesFromStorage()
     if (localMessages.length > 0) {
@@ -404,6 +474,9 @@ export const useChatStore = defineStore('chat', () => {
     parallelLaneCounter = 0
     // Reset visualization accumulator
     pendingVisualizations = []
+    // Reset decision/preview state
+    previewSignal.value = null
+    decisionSummary.value = null
   }
 
   // Convert a debug SSE event into a DebugMessage for sidebar display
@@ -423,6 +496,8 @@ export const useChatStore = defineStore('chat', () => {
       role = 'handoff'
     } else if (debugType === 'data_sharing') {
       role = 'system'
+    } else if (debugType === 'discussion_argument' || debugType === 'decision_summary' || debugType === 'preview_signal' || debugType === 'arena_error' || debugType === 'decision_trace') {
+      role = 'discussion'
     }
 
     // Determine laneId for parallel routing
@@ -449,10 +524,56 @@ export const useChatStore = defineStore('chat', () => {
       targetAgent: data.to_agent,
       parentAgent: data.parent_agent,
       laneId,
+      arenaId: event.arena_id,
       role,
     }
 
     debugMessages.value.push(msg)
+
+    // Special handling for preview_signal: show fast preview before full LLM summary
+    if (debugType === 'preview_signal' && data.signal) {
+      previewSignal.value = {
+        signal: data.signal as 'BUY' | 'SELL' | 'HOLD',
+        confidence: data.confidence || 0,
+        bull_count: data.bull_count || 0,
+        bear_count: data.bear_count || 0,
+        neutral_count: data.neutral_count || 0,
+        stock_code: data.stock_code || '',
+        is_preview: true,
+      }
+      decisionSidebarOpen.value = true
+      console.log('[Chat] Preview signal received:', previewSignal.value)
+    }
+
+    // Special handling for decision_trace team_summary: update decision state
+    if (debugType === 'decision_trace' && data.stage === 'team_summary' && data.signal) {
+      previewSignal.value = null
+      decisionSummary.value = {
+        signal: data.signal as 'BUY' | 'SELL' | 'HOLD' | 'NONE',
+        confidence: data.confidence || 0,
+        bull_count: data.bull_count || 0,
+        bear_count: data.bear_count || 0,
+        neutral_count: data.neutral_count || 0,
+        suggested_action: data.suggested_action || '',
+      }
+      decisionSidebarOpen.value = true
+    }
+
+    // Special handling for decision_summary: update decision state (upgrades preview)
+    if (debugType === 'decision_summary' && data.signal) {
+      // Clear preview signal — the full summary replaces it
+      previewSignal.value = null
+      decisionSummary.value = {
+        signal: data.signal as 'BUY' | 'SELL' | 'HOLD' | 'NONE',
+        confidence: data.confidence || 0,
+        bull_count: data.bull_count || 0,
+        bear_count: data.bear_count || 0,
+        neutral_count: data.neutral_count || 0,
+        suggested_action: data.suggested_action || '',
+      }
+      decisionSidebarOpen.value = true
+      console.log('[Chat] Decision summary received:', decisionSummary.value)
+    }
   }
 
   // Save debug messages snapshot for a completed message (for history playback)
@@ -483,6 +604,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  const setActiveTeam = (team: { id?: string; name?: string } | null) => {
+    activeTeamId.value = team?.id || null
+    activeTeamName.value = team?.name || null
+  }
+
+  const clearActiveTeam = () => {
+    activeTeamId.value = null
+    activeTeamName.value = null
+  }
+
   const sendMessage = async (content: string) => {
     if (!sessionId.value) {
       await initSession()
@@ -511,14 +642,33 @@ export const useChatStore = defineStore('chat', () => {
     }
     messages.value.push(assistantMessage)
 
+    // Capture the session ID at the time of sending — used as a guard
+    // to prevent stale callbacks from writing into a different session
+    const sendingSessionId = sessionId.value
+
+    // Create AbortController for this stream
+    if (streamAbortController) {
+      streamAbortController.abort()
+    }
+    streamAbortController = new AbortController()
+    const currentController = streamAbortController
+
     try {
       await chatApi.streamMessagePost(
-        sessionId.value,
+        sendingSessionId,
         content,
+        activeTeamId.value || activeTeamName.value
+          ? { team_id: activeTeamId.value, team_name: activeTeamName.value }
+          : null,
         (event: StreamEvent) => {
+          // SESSION GUARD: If user switched sessions, discard stale events
+          if (sessionId.value !== sendingSessionId) {
+            return
+          }
+
           // Debug log for event tracking
           console.debug('[Chat] Received event:', event.type, event)
-          
+
           switch (event.type) {
             case 'thinking':
               thinking.value = true
@@ -552,7 +702,7 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
               break
-              
+
             case 'tool':
               thinking.value = true
               if (event.agent) {
@@ -607,7 +757,7 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
               break
-              
+
             case 'done':
               thinking.value = false
               loading.value = false
@@ -624,9 +774,11 @@ export const useChatStore = defineStore('chat', () => {
               }
               // Save debug snapshot for this message
               saveDebugSnapshot(assistantMessageId)
+              // Auto-generate session title after first assistant response
+              autoGenerateTitle(sendingSessionId, content)
               console.debug('[Chat] Stream completed with metadata:', event.metadata)
               break
-              
+
             case 'error':
               thinking.value = false
               loading.value = false
@@ -640,12 +792,16 @@ export const useChatStore = defineStore('chat', () => {
                 errorMsg.content = `抱歉，处理请求时出现错误: ${errorDetail}`
               }
               break
-              
+
             default:
               console.warn('[Chat] Unknown event type:', (event as any).type)
           }
         },
         (error: Error) => {
+          // SESSION GUARD: Ignore errors from aborted/stale streams
+          if (sessionId.value !== sendingSessionId) {
+            return
+          }
           console.error('[Chat] Stream connection error:', error)
           thinking.value = false
           loading.value = false
@@ -659,9 +815,12 @@ export const useChatStore = defineStore('chat', () => {
               errorMsg.content = `抱歉，处理您的请求时出现了问题: ${error.message}`
             }
           }
-        }
+        },
+        currentController
       )
     } catch (e) {
+      // SESSION GUARD
+      if (sessionId.value !== sendingSessionId) return
       console.error('[Chat] Unexpected error:', e)
       thinking.value = false
       loading.value = false
@@ -673,6 +832,31 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // Auto-generate session title using LLM after first assistant response
+  const autoGenerateTitle = async (targetSessionId: string, userMessage: string) => {
+    // Only generate title for sessions that don't have one yet
+    const session = sessions.value.find(s => s.session_id === targetSessionId)
+    if (!session) return
+    if (session.title && session.title.trim() !== '') return
+
+    // Only trigger on first exchange (message_count ≤ 2 means first user + first assistant)
+    if (session.message_count > 2) return
+
+    try {
+      const result = await chatApi.generateSessionTitle(targetSessionId)
+      if (result.title) {
+        // Update in sessions list
+        session.title = result.title
+        // Update current title if it's the active session
+        if (targetSessionId === sessionId.value) {
+          currentSessionTitle.value = result.title
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to auto-generate session title:', e)
+    }
+  }
+
   const loadHistory = async (targetSessionId = sessionId.value) => {
     if (!targetSessionId) return false
 
@@ -680,12 +864,32 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = result.messages
     messageVisualizations.value = {}
 
+    // Reset debug/decision state before restoring from history
+    debugMessages.value = []
+    debugMsgCounter = 0
+    parallelLaneCounter = 0
+    previewSignal.value = null
+    decisionSummary.value = null
+
     for (const msg of result.messages) {
-      if (msg.role === 'assistant' && msg.metadata?.visualizations) {
+      if (msg.role !== 'assistant') continue
+
+      // Restore visualizations
+      if (msg.metadata?.visualizations) {
         const vizList = msg.metadata.visualizations as VisualizationEvent['visualization'][]
         if (vizList.length > 0) {
           messageVisualizations.value[msg.id] = vizList
         }
+      }
+
+      // Restore debug events (chain trace + discussion + decision signals)
+      if (msg.metadata?.debug_events) {
+        const events = msg.metadata.debug_events as DebugEvent[]
+        for (const evt of events) {
+          processDebugEvent(evt)
+        }
+        // Save the snapshot for per-message "查看调试" button
+        saveDebugSnapshot(msg.id)
       }
     }
 
@@ -722,6 +926,13 @@ export const useChatStore = defineStore('chat', () => {
     messageDebugMap,
     // Visualization state
     messageVisualizations,
+    // Decision summary state
+    decisionSummary,
+    decisionSidebarOpen,
+    previewSignal,
+    activeTeamId,
+    activeTeamName,
+    lastSessionRef,
     // Actions
     initSession,
     restoreOrInitSession,
@@ -731,6 +942,8 @@ export const useChatStore = defineStore('chat', () => {
     updateSessionTitle,
     newConversation,
     clearCurrentConversation,
+    setActiveTeam,
+    clearActiveTeam,
     sendMessage,
     loadHistory,
     clearMessages,

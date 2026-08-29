@@ -358,6 +358,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"ClickHouse migrations failed: {e}")
 
+    # Sync built-in agents from YAML to ClickHouse (idempotent)
+    try:
+        from stock_datasource.services.agent_config_service import sync_builtin_agents
+        sync_builtin_agents()
+    except Exception as e:
+        logger.warning(f"Built-in agent sync failed: {e}")
+
     # Start sync task manager（延迟启动，避免与初始化建表并发造成断连）
     try:
         from stock_datasource.modules.datamanage.service import sync_task_manager
@@ -635,13 +642,11 @@ def _register_toplist_routes(app: FastAPI) -> None:
 
 
 def _register_workflow_routes(app: FastAPI) -> None:
-    """Register workflow management routes."""
-    try:
-        from stock_datasource.api.workflow_routes import router as workflow_router
-        app.include_router(workflow_router)
-        logger.info("Registered workflow routes")
-    except Exception as e:
-        logger.warning(f"Failed to register workflow routes: {e}")
+    """DEPRECATED: Workflow routes replaced by /api/orchestrations/."""
+    # Old workflow routes are no longer registered.
+    # The frontend /workflow path redirects to /orchestration.
+    # Pipeline orchestration is handled by modules/orchestration/router.py
+    pass
 
 
 def _register_cache_routes(app: FastAPI) -> None:

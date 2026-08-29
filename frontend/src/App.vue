@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import QuotaIndicator from '@/components/QuotaIndicator.vue'
+import { useMenuTracking } from '@/composables/useMenuTracking'
 import {
   ChatIcon,
   ChartLineIcon,
@@ -34,6 +35,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const { trackClick } = useMenuTracking()
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/market', '/research']
@@ -51,14 +54,45 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
-  { path: '/research', title: '财报分析', icon: FileSearchIcon, public: true },
-  { path: '/news', title: '资讯中心', icon: NotificationIcon, requiresAuth: true },
   { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
-  { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
+  {
+    path: '/market-center',
+    title: '行情中心',
+    icon: ChartLineIcon,
+    public: true,
+    children: [
+      { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
+      { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
+      { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
+      { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true }
+    ]
+  },
+  {
+    path: '/event-center',
+    title: '事件驱动',
+    icon: NotificationIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/news', title: '新闻快讯', icon: NotificationIcon, requiresAuth: true },
+      { path: '/report', title: '券商研报', icon: FileSearchIcon, requiresAuth: true },
+      { path: '/signal', title: '信号聚合', icon: ChartBubbleIcon, requiresAuth: true },
+      { path: '/research', title: '财报分析', icon: FileIcon, public: true }
+    ]
+  },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
-  { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true },
-  { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
+  {
+    path: '/agent-center',
+    title: 'AI Agent 投研',
+    icon: SettingIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/agents', title: '投研 Agent', icon: SettingIcon, requiresAuth: true },
+      { path: '/orchestration', title: '投研团队', icon: QueueIcon, requiresAuth: true },
+      { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true },
+      { path: '/runtimes', title: '工具运行时', icon: ControlPlatformIcon, requiresAuth: true },
+      { path: '/arena', title: '策略实验室', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
+    ]
+  },
   {
     path: '/strategy',
     title: '策略系统',
@@ -67,7 +101,7 @@ const menuItems: MenuItem[] = [
     requiresTier: 'pro',
     children: [
       { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true, requiresTier: 'pro' },
-      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
+      { path: '/decision', title: '决策看板', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
   {
@@ -86,7 +120,6 @@ const menuItems: MenuItem[] = [
       { path: '/quant/config', title: '模型配置', icon: SettingIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
-  { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true, requiresTier: 'pro' },
   { path: '/wechat-bridge', title: '微信联动', icon: RootListIcon, requiresAuth: true, requiresAdmin: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
   {
@@ -166,6 +199,8 @@ const handleMenuChange = (value: string) => {
     MessagePlugin.warning('需要管理员权限')
     return
   }
+  // Track menu click for progressive disclosure analytics
+  trackClick(value)
   router.push(value)
 }
 
@@ -256,6 +291,9 @@ onMounted(async () => {
           </t-menu-item>
         </template>
       </t-menu>
+      <div class="sidebar-footer">
+        <span class="version-badge">v{{ appVersion }}</span>
+      </div>
     </aside>
     
     <main class="main-content">
@@ -313,5 +351,17 @@ onMounted(async () => {
   font-size: 12px;
   color: #86909c;
   margin-left: 8px;
+}
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #e7e7e7;
+  margin-top: auto;
+}
+
+.version-badge {
+  font-size: 11px;
+  color: #bbb;
+  font-family: monospace;
 }
 </style>

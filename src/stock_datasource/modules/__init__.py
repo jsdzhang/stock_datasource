@@ -182,4 +182,39 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .sentinel.router import router as sentinel_router
+
+        routers.append(("/sentinel", sentinel_router, ["哨兵选股"]))
+    except ImportError:
+        pass
+
+    try:
+        from .agent_management.router import router as agent_mgmt_router
+
+        routers.append(("/agents", agent_mgmt_router, ["Agent管理"]))
+    except ImportError:
+        pass
+
+    try:
+        from .orchestration.router import router as orchestration_router
+
+        routers.append(("/orchestrations", orchestration_router, ["Agent编排"]))
+    except ImportError:
+        pass
+
+    try:
+        from .paper_trading.router import router as paper_trading_router
+
+        routers.append(("/paper-trading", paper_trading_router, ["模拟盘"]))
+    except ImportError:
+        pass
+
+    try:
+        from .timing.router import router as timing_router
+
+        routers.append(("/timing", timing_router, ["择时系统"]))
+    except ImportError:
+        pass
+
     return routers
