@@ -439,8 +439,8 @@ GET    /api/arena/{id}/thinking-stream  # SSE stream
 ### 7.3 MCP Server Entry Point
 
 **Location:** `services/mcp_server.py`
-- Exposes agents as MCP tools
-- Callable from Claude Code, Cursor, etc.
+- Exposes plugin query methods as MCP tools on legacy `8001/messages` (PicoClaw / some IDEs)
+- DeepSeek Harness uses `services/mcp_dsh.py` (stdio or native `/mcp`) with catalog tools only — see `docs/DEEPSEEK_HARNESS.md`
 
 ---
 
@@ -739,6 +739,7 @@ OrchestratorAgent
 - `src/stock_datasource/api/` - HTTP API routes
 - `src/stock_datasource/services/http_server.py` - FastAPI server
 - `src/stock_datasource/services/mcp_server.py` - MCP server
+- `src/stock_datasource/services/mcp_dsh.py` - DeepSeek Harness MCP entry (stdio / native HTTP)
 
 ---
 

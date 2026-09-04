@@ -1,0 +1,26 @@
+# Optional native Streamable HTTP overlay.
+#
+# Start the server first (legacy /messages on 8001 is a different protocol):
+#   uv run python -m stock_datasource.services.mcp_dsh --transport streamable-http --port 8002
+#
+# Then:
+#   dsh web --patch "$STOCK_DATASOURCE_ROOT/integrations/dsh/stock-http.cordis.yml"
+# `--patch` must precede web app flags such as `--no-open` / `--port`.
+- insert:
+    - id: mcp-stock-datasource-http
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: stock
+        transport: streamable-http
+        url: !!js process.env.STOCK_MCP_DSH_URL?.trim() || 'http://127.0.0.1:8002/mcp'
+        headers: {}
+        toolCallTimeoutMs: 120000
+        failOnStartupError: true
+    - id: stock-datasource-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: stock-datasource-skills
+        includeDefaultRoots: false
+        customSkillDirs:
+          - !!js process.getBuiltinModule('node:path').join(process.env.STOCK_DATASOURCE_ROOT?.trim() || process.cwd(), 'skills')
+        watch: true

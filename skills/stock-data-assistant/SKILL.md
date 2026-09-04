@@ -10,7 +10,7 @@ description: >
 
 # Stock Data Assistant（股票数据统一助手）
 
-整合 **历史数据查询**、**实时行情搜索** 和 **微信联动** 三大能力的统一 Skill。
+整合 **历史数据查询**、**实时行情搜索** 和 **微信联动** 三大能力的统一 Skill。DeepSeek Harness 接入见仓库 `docs/DEEPSEEK_HARNESS.md`（stdio MCP，不要使用 `8001/messages`）。
 
 ## 架构总览
 

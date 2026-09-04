@@ -1,7 +1,30 @@
 # A股赛博操盘手 🤖📈
 
 **AI 原生的 A 股智能投资助手——赛博操盘手** —— 基于tushare构建的本地财经库。支持历史数据与实时数据的多Agent协同架构，为个人投资者提供专业级的股票分析、智能选股、投资组合管理、策略回测、AI 生成量化策略能力。
-原生支持MCP与SKILL，支持多种交互方式，包括命令行、网页、API、OpenClaw、PicoClaw等。
+原生支持 MCP 与 SKILL。可作为 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）** 的官方 MCP 数据源，并支持命令行、网页、API、OpenClaw、PicoClaw 等多种交互。
+
+## 🧭 DeepSeek Harness
+
+本仓库给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供行情 / 财务查询：dsh 跑 Agent 循环，这里只当 MCP 数据服务。
+
+不要把 PicoClaw 用的 `http://localhost:8001/messages` 配进 dsh（那是自研 JSON-RPC，不是官方 Streamable HTTP）。用仓库自带的 overlay：
+
+```bash
+export STOCK_DATASOURCE_ROOT=/absolute/path/to/stock_datasource
+# `--patch` 必须写在 `--no-open` / `--port` 前面
+dsh web --patch "$STOCK_DATASOURCE_ROOT/integrations/dsh/stock.cordis.yml"
+```
+
+模型只看到两个工具，避免上百个插件查询撑爆上下文：
+
+| dsh 工具 | 作用 |
+|---|---|
+| `mcp__stock__stock_list_tools` | 按分类 / 关键词发现查询 |
+| `mcp__stock__stock_call_tool` | 按返回的 `name` 调用，结果自动截断 |
+
+会话里可以直接问：「用 stock 工具查 600519.SH 最近几个交易日收盘价」。HTTP 备选入口、截断参数与工具约定见 [DeepSeek Harness 接入](docs/DEEPSEEK_HARNESS.md)。
+
+--------
 
 ## 📱 PicoClaw 微信联动能力
 
@@ -124,7 +147,8 @@
 - **💬 流式响应**：实时展示 AI 思考过程和工具调用状态
 - **🔗 会话记忆**：支持多轮对话，保持上下文连贯
 - **📊 Langfuse 可观测**：完整的 AI 调用链路追踪、Token 统计、性能分析
-- **🔌 MCP Server**：支持 Claude Code、Cursor 等 AI IDE 直接调用
+- **🧭 DeepSeek Harness**：官方 MCP stdio / Streamable HTTP，两层目录工具对接 `dsh`
+- **🔌 MCP Server**：支持 Claude Code、Cursor、PicoClaw 等（`8001/messages`）
 
 ### 可AI拓展的数据采集能力
 
@@ -442,6 +466,8 @@ uv run python -m stock_datasource.services.mcp_server
 }
 ```
 
+> `8001/messages` 是给 PicoClaw / 部分 IDE 使用的自研 HTTP JSON-RPC，**不要**配进 DeepSeek Harness。`dsh` 请用文首 DeepSeek Harness 小节的 overlay，详见 [DeepSeek Harness 接入](docs/DEEPSEEK_HARNESS.md)。
+
 ---
 
 ## 🔓 开放 API 网关（Open API Gateway）
@@ -573,7 +599,9 @@ stock_datasource/
 │   │   ├── orchestration_service.py   # Team/Pipeline CRUD
 │   │   ├── orchestration_engine.py    # DAG执行引擎（多Runtime分发）
 │   │   ├── skill_registry.py         # 技能注册中心
-│   │   ├── mcp_server.py             # MCP工具服务
+│   │   ├── mcp_server.py             # MCP工具服务（8001 / PicoClaw）
+│   │   ├── mcp_dsh.py                # DeepSeek Harness MCP（stdio / 8002）
+│   │   ├── mcp_catalog.py            # dsh 两层目录工具
 │   │   └── http_server.py            # FastAPI入口
 │   ├── modules/                   # 功能模块（28个）
 │   │   ├── agent_management/      # Agent管理API（CRUD+Skills+Runtime探测）

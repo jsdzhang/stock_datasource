@@ -1,0 +1,35 @@
+# Opt-in DeepSeek Harness overlay for stock_datasource.
+#
+# Usage:
+#   export STOCK_DATASOURCE_ROOT=/absolute/path/to/stock_datasource
+#   dsh web --patch "$STOCK_DATASOURCE_ROOT/integrations/dsh/stock.cordis.yml"
+# `--patch` must precede web app flags such as `--no-open` / `--port`.
+#
+# Requires `uv` on PATH. DSH spawns the stdio MCP process; ClickHouse must
+# already be reachable from this repo's .env.
+- insert:
+    - id: mcp-stock-datasource
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: stock
+        transport: stdio
+        command: uv
+        args:
+          - run
+          - --directory
+          - !!js process.env.STOCK_DATASOURCE_ROOT?.trim() || process.cwd()
+          - python
+          - -m
+          - stock_datasource.services.mcp_dsh
+        cwd: !!js process.env.STOCK_DATASOURCE_ROOT?.trim() || process.cwd()
+        env: {}
+        toolCallTimeoutMs: 120000
+        failOnStartupError: true
+    - id: stock-datasource-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: stock-datasource-skills
+        includeDefaultRoots: false
+        customSkillDirs:
+          - !!js process.getBuiltinModule('node:path').join(process.env.STOCK_DATASOURCE_ROOT?.trim() || process.cwd(), 'skills')
+        watch: true

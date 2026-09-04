@@ -1,6 +1,6 @@
 ---
 name: stock-mcp-query
-description: Query historical stock market data (A-shares, HK stocks, ETFs, indices) via MCP protocol. Use this skill when the user wants to retrieve historical daily K-line data, financial statements, market indicators, stock screening results, or any other batch data from the stock database. Requires a valid MCP query token purchased from the management platform.
+description: Query historical stock market data (A-shares, HK stocks, ETFs, indices) via MCP. Use when the user wants daily K-line, financial statements, market indicators, screening, or other batch data. DeepSeek Harness clients should call stock_list_tools then stock_call_tool. Remote HTTP MCP on port 8001 still requires STOCK_MCP_TOKEN.
 ---
 
 # Stock MCP Query
@@ -35,7 +35,25 @@ If `STOCK_MCP_TOKEN` is not set:
    export STOCK_MCP_SERVER_URL="https://your-node:8001/messages"
    ```
 
-## MCP Server Configuration
+## DeepSeek Harness
+
+When running inside DeepSeek Harness (`dsh`), do **not** call the raw plugin tools. Use:
+
+1. `mcp__stock__stock_list_tools` — `category` is one of `market|basic|financial|index|etf|hk|realtime|toplist|other`; `query` is a keyword such as `daily` or a ts_code prefix.
+2. `mcp__stock__stock_call_tool` — `tool_name` must be a `name` returned by the list tool (example: `tushare_daily_get_daily_data`); `arguments` is a JSON object matching that tool's `inputSchema`.
+
+Keep queries narrow (one `ts_code` / `code` and a short date range). Results are truncated.
+
+Start dsh with this repo's overlay instead of pointing at `localhost:8001/messages`:
+
+```bash
+export STOCK_DATASOURCE_ROOT=/absolute/path/to/stock_datasource
+dsh web --patch "$STOCK_DATASOURCE_ROOT/integrations/dsh/stock.cordis.yml"
+```
+
+Stdio MCP spawned by dsh does not use `STOCK_MCP_TOKEN`.
+
+## MCP Server Configuration (Claude Code / Cursor / PicoClaw)
 
 Add to your MCP client configuration:
 

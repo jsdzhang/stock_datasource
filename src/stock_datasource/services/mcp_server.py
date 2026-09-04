@@ -12,6 +12,10 @@ from fastmcp import FastMCP
 
 from stock_datasource.core.base_service import BaseService
 from stock_datasource.core.service_generator import ServiceGenerator
+from stock_datasource.services.mcp_catalog import (
+    DSH_SERVER_INSTRUCTIONS,
+    register_catalog_tools,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -234,68 +238,57 @@ def _convert_tool_arguments(
         return arguments
 
 
-def create_mcp_server() -> tuple[FastMCP, dict]:
-    """Create and configure MCP server with all discovered services.
-
-    Returns:
-        Tuple of (FastMCP server, dict of service generators)
-    """
-    server = FastMCP("stock-data-service")
-    service_generators = {}
-
-    # Discover and register all services
-    service_configs = _discover_services()
-
-    if not service_configs:
-        logger.warning("No services discovered")
-        return server, service_generators
-
-    # Register tools for each service
-    for service_prefix, service_class in service_configs:
+def load_service_generators() -> dict[str, ServiceGenerator]:
+    """Instantiate plugin query services used by both HTTP and stdio MCP."""
+    service_generators: dict[str, ServiceGenerator] = {}
+    for service_prefix, service_class in _discover_services():
         try:
-            # Create service instance
             service = _get_or_create_service(service_class, service_prefix)
             if service is None:
-                logger.warning(f"Skipping service registration: {service_prefix}")
+                logger.warning("Skipping service registration: %s", service_prefix)
                 continue
+            service_generators[service_prefix] = ServiceGenerator(service)
+        except Exception as e:
+            logger.error("Failed to initialize service %s: %s", service_prefix, e)
+    if not service_generators:
+        logger.warning("No services discovered")
+    return service_generators
 
-            generator = ServiceGenerator(service)
-            service_generators[service_prefix] = generator
+
+def register_plugin_tools(
+    server: FastMCP, service_generators: dict[str, ServiceGenerator]
+) -> None:
+    """Register every plugin query method as its own MCP tool."""
+    for service_prefix, generator in service_generators.items():
+        try:
             mcp_tools = generator.generate_mcp_tools()
-
-            # Register each tool
             for tool_def in mcp_tools:
                 tool_name = tool_def["name"]
                 full_tool_name = f"{service_prefix}_{tool_name}"
 
-                # Get the method signature to create proper handler
                 method = generator.get_tool_handler(tool_name)
                 if method is None:
-                    logger.warning(f"Tool handler not found: {tool_name}")
+                    logger.warning("Tool handler not found: %s", tool_name)
                     continue
 
-                # Get parameter names from the method signature
                 sig = inspect.signature(method)
                 param_names = [p for p in sig.parameters.keys() if p != "self"]
 
-                # Create tool handler with closure
                 def make_tool_handler(
                     service_prefix_inner: str,
                     tool_name_inner: str,
                     generator_inner: ServiceGenerator,
                     param_names_inner: list,
                 ):
-                    # Create handler with explicit parameters
                     def handler_factory():
-                        # Build handler with explicit parameters
                         if not param_names_inner:
 
                             def handler() -> str:
                                 try:
-                                    method = generator_inner.get_tool_handler(
+                                    bound = generator_inner.get_tool_handler(
                                         tool_name_inner
                                     )
-                                    result = method()
+                                    result = bound()
                                     if isinstance(result, (dict, list)):
                                         return json.dumps(
                                             result, ensure_ascii=False, indent=2
@@ -305,17 +298,14 @@ def create_mcp_server() -> tuple[FastMCP, dict]:
                                     return f"Error calling {tool_name_inner}: {e!s}"
 
                             return handler
-                        else:
-                            # Create handler with parameters
-                            exec_globals = {
-                                "generator_inner": generator_inner,
-                                "tool_name_inner": tool_name_inner,
-                                "json": json,
-                            }
 
-                            # Build function signature dynamically
-                            params_str = ", ".join(param_names_inner)
-                            handler_code = f"""def handler({params_str}) -> str:
+                        exec_globals = {
+                            "generator_inner": generator_inner,
+                            "tool_name_inner": tool_name_inner,
+                            "json": json,
+                        }
+                        params_str = ", ".join(param_names_inner)
+                        handler_code = f"""def handler({params_str}) -> str:
     try:
         method = generator_inner.get_tool_handler(tool_name_inner)
         result = method({params_str})
@@ -325,27 +315,48 @@ def create_mcp_server() -> tuple[FastMCP, dict]:
     except Exception as e:
         return f"Error calling {{tool_name_inner}}: {{str(e)}}"
 """
-                            exec(handler_code, exec_globals)
-                            return exec_globals["handler"]
+                        exec(handler_code, exec_globals)
+                        return exec_globals["handler"]
 
                     return handler_factory()
 
-                # Create handler
                 handler = make_tool_handler(
                     service_prefix, tool_name, generator, param_names
                 )
-
-                # Register tool with MCP server using decorator
                 server.tool(
                     name=full_tool_name,
                     description=tool_def["description"],
                 )(handler)
-
-                logger.info(f"Registered MCP tool: {full_tool_name}")
-
+                logger.info("Registered MCP tool: %s", full_tool_name)
         except Exception as e:
-            logger.error(f"Failed to register service {service_prefix}: {e}")
+            logger.error("Failed to register service %s: %s", service_prefix, e)
 
+
+def create_mcp_server() -> tuple[FastMCP, dict]:
+    """Create and configure MCP server with all discovered services.
+
+    Returns:
+        Tuple of (FastMCP server, dict of service generators)
+    """
+    server = FastMCP("stock-data-service")
+    service_generators = load_service_generators()
+    register_plugin_tools(server, service_generators)
+    register_catalog_tools(server, service_generators)
+    return server, service_generators
+
+
+def create_dsh_mcp_server() -> tuple[FastMCP, dict]:
+    """Create the DeepSeek Harness MCP server (catalog tools only).
+
+    Plugin queries remain reachable through ``stock_call_tool`` so the model
+    context stays small enough for DSH.
+    """
+    server = FastMCP(
+        "stock-datasource",
+        instructions=DSH_SERVER_INSTRUCTIONS,
+    )
+    service_generators = load_service_generators()
+    register_catalog_tools(server, service_generators)
     return server, service_generators
 
 
