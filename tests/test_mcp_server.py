@@ -35,7 +35,7 @@ class TestMCPServerCreation:
 
     def test_create_mcp_server(self):
         """Test that MCP server is created successfully."""
-        server = create_mcp_server()
+        server, _generators = create_mcp_server()
 
         assert server is not None
         assert server.name == "stock-data-service"
@@ -46,7 +46,7 @@ class TestMCPServerCreation:
         # Mock the database client
         mock_db.query.return_value = []
 
-        server = create_mcp_server()
+        server, _generators = create_mcp_server()
 
         # Server should be created without errors
         assert server is not None
@@ -83,7 +83,7 @@ class TestMCPServerIntegration:
         """Test server creation with mocked database."""
         mock_db.query.return_value = []
 
-        server = create_mcp_server()
+        server, _generators = create_mcp_server()
 
         assert server is not None
         assert server.name == "stock-data-service"

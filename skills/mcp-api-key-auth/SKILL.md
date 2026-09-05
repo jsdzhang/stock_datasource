@@ -5,7 +5,7 @@ description: This skill should be used when the user needs to set up, manage, or
 
 ## Purpose
 
-Enable external MCP clients (Claude Code, Cursor, etc.) to authenticate with the stock data service using independent API keys, and track per-tool usage (table name, record count) for monitoring.
+Enable external MCP clients (Claude Code, Cursor, PicoClaw, DeepSeek Harness) to authenticate with the stock data service using independent API keys, and track per-tool usage (table name, record count) for monitoring.
 
 ## When to Use
 
@@ -67,6 +67,10 @@ Add to your MCP configuration (`claude_desktop_config.json` or project `.mcp.jso
 In Cursor settings, add an MCP server with:
 - **URL**: `http://<host>:8001/messages`
 - **Header**: `Authorization: Bearer sk-your-api-key-here`
+
+#### DeepSeek Harness
+
+dsh 不使用 `8001/messages`。本地 stdio 由 dsh spawn，不走 API Key。见 `docs/DEEPSEEK_HARNESS.md`。
 
 ### 3) Verify Connectivity
 
